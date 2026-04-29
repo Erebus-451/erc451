@@ -1,0 +1,19 @@
+{
+  "name": "erc451",
+  "version": "1.0.0",
+  "description": "ERC-451: improved semi-fungible token standard fixing every critical issue in ERC-404",
+  "scripts": {
+    "build": "hardhat compile",
+    "test": "hardhat test",
+    "deploy": "hardhat run scripts/deploy.ts",
+    "node:local": "hardhat node"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "@openzeppelin/contracts": "^5.2.0",
+    "@types/node": "^22.14.1",
+    "dotenv": "^16.5.0",
+    "hardhat": "^2.24.0",
+    "typescript": "^5.8.3"
+  }
+}
