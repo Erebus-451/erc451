@@ -65,6 +65,37 @@ Estimated savings vs ERC-404:
 
 ---
 
+## Trading gate
+
+ERC-451 includes a built-in launch safety mechanism via the `tradingEnabled` flag.
+
+```solidity
+bool public tradingEnabled;
+```
+
+- Defaults to `false` at deploy time.
+- While `false`, any transfer where **both** `from` and `to` are non-exempt reverts with `"Trading not enabled"`.
+- `address(0)` is always exempt — initial mints are never blocked.
+- The deployer, router, and liquidity pair can all be exempted before trading opens, allowing liquidity to be seeded safely.
+
+The inheriting contract is responsible for exposing an `enableTrading()` function (owner-gated, one-way):
+
+```solidity
+function enableTrading() external onlyOwner {
+    require(!tradingEnabled, "Already enabled");
+    tradingEnabled = true;
+    emit TradingEnabled(block.timestamp);
+}
+```
+
+This pattern ensures:
+1. The deployer mints the full supply to an exempt address.
+2. Liquidity is added via the router (also exempt) — no NFT minting triggered.
+3. The pair address is registered and exempted via `setupLiquidityPair`.
+4. `enableTrading()` is called — from this point all transfers are open.
+
+---
+
 ## Installation
 
 ```bash
@@ -92,12 +123,29 @@ import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 contract MyToken is ERC451, Ownable {
     uint256 public constant MAX_SUPPLY = 10_000;
 
-    constructor(address owner_, address mintRecipient_)
+    event TradingEnabled(uint256 timestamp);
+
+    constructor(address router_, address owner_, address mintRecipient_)
         ERC451("MyToken", "MTK", 18)
         Ownable(owner_)
     {
-        _setERC721TransferExempt(mintRecipient_, true, type(uint256).max);
-        _mintERC20(mintRecipient_, MAX_SUPPLY * units);
+        _setERC721TransferExempt(router_,         true, 0);
+        _setERC721TransferExempt(owner_,          true, 0);
+        _setERC721TransferExempt(mintRecipient_,  true, 0);
+    }
+
+    function initialMint(address to_) external onlyOwner {
+        _mintERC20(to_, MAX_SUPPLY * units);
+    }
+
+    function setupLiquidityPair(address pair_) external onlyOwner {
+        _setERC721TransferExempt(pair_, true, 0);
+    }
+
+    function enableTrading() external onlyOwner {
+        require(!tradingEnabled, "Already enabled");
+        tradingEnabled = true;
+        emit TradingEnabled(block.timestamp);
     }
 
     function tokenURI(uint256 id_) public pure override returns (string memory) {
@@ -132,18 +180,23 @@ Copy `.env.example` to `.env` and fill in your keys:
 DEPLOYER_PRIVATE_KEY=0x...
 SEPOLIA_RPC_URL=https://...
 MAINNET_RPC_URL=https://...
+ETHERSCAN_API_KEY=...
 ```
 
 Then:
 
 ```bash
 # Sepolia testnet
-npm run deploy -- --network sepolia
+npx hardhat run scripts/deployErebus.ts --network sepolia
 
-# Local node
-npm run node:local
-# (in another terminal)
-npm run deploy -- --network localhost
+# Mainnet
+npx hardhat run scripts/deployErebus.ts --network mainnet
+```
+
+After adding liquidity on Uniswap, run the launch script to register the pair and open trading:
+
+```bash
+EREBUS_ADDRESS=0x... PAIR_ADDRESS=0x... npx hardhat run scripts/launch.ts --network mainnet
 ```
 
 ---
@@ -179,6 +232,12 @@ setERC721TransferExempt(lpPool, true, 100);
 | `_BITMASK_OWNED_INDEX` | `((1 << 96) - 1) << 160` | High 96 bits of `_ownedData` slot — owned array index |
 
 `_owned[address]` stores `uint32` offsets (not full `uint256` IDs). The full ID is `ID_ENCODING_PREFIX | uint256(offset)`. Maximum collection size: 2^32 (~4 billion tokens).
+
+---
+
+## Reference implementation
+
+[Erebus](https://github.com/ClaimyToken/erebus-labs) is a production deployment of ERC-451 on Ethereum mainnet. It implements the full trading gate pattern, EIP-4906 metadata, self-exemption, and a Uniswap V2 launch sequence.
 
 ---
 
