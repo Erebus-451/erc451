@@ -33,8 +33,7 @@ abstract contract ERC451 is IERC165 {
     // Events (ERC-20 + ERC-721 + EIP-4906)
     // =========================================================================
 
-    event ERC20Transfer(address indexed from, address indexed to, uint256 amount);
-    event ERC721Transfer(address indexed from, address indexed to, uint256 indexed id);
+    event Transfer(address indexed from, address indexed to, uint256 value);
     event ERC20Approval(address indexed owner, address indexed spender, uint256 value);
     event ERC721Approval(address indexed owner, address indexed spender, uint256 indexed id);
     event ApprovalForAll(address indexed owner, address indexed operator, bool approved);
@@ -132,6 +131,13 @@ abstract contract ERC451 is IERC165 {
     mapping(address => bool) internal _erc721TransferExempt;
 
     // =========================================================================
+    // Trading gate
+    // =========================================================================
+
+    /// @notice False until owner calls enableTrading(). Prevents non-exempt transfers at launch.
+    bool public tradingEnabled;
+
+    // =========================================================================
     // Bank queue (recycled NFT IDs)
     // =========================================================================
 
@@ -162,6 +168,9 @@ abstract contract ERC451 is IERC165 {
 
     /// @dev High bit set on all ERC-721 token IDs to distinguish them from ERC-20 amounts.
     uint256 public constant ID_ENCODING_PREFIX = 1 << 255;
+
+    /// @dev keccak256("Transfer(address,address,uint256)") — shared by ERC-20 and ERC-721 Transfer events.
+    bytes32 private constant _TRANSFER_EVENT_SIGNATURE = 0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef;
 
     uint256 private constant _BITMASK_ADDRESS     = (1 << 160) - 1;
     uint256 private constant _BITMASK_OWNED_INDEX = ((1 << 96) - 1) << 160;
@@ -519,15 +528,23 @@ abstract contract ERC451 is IERC165 {
 
     /**
      * @dev Raw ERC-20 transfer with no NFT side-effects. Allows address(0) as from (mint).
+     *      Trading gate: before enableTrading(), at least one of from/to must be exempt.
+     *      address(0) is always exempt so mints are never blocked.
      */
     function _transferERC20(address from_, address to_, uint256 value_) internal virtual {
+        if (!tradingEnabled) {
+            require(
+                erc721TransferExempt(from_) || erc721TransferExempt(to_),
+                "Trading not enabled"
+            );
+        }
         if (from_ == address(0)) {
             totalSupply += value_;
         } else {
             balanceOf[from_] -= value_;
         }
         unchecked { balanceOf[to_] += value_; }
-        emit ERC20Transfer(from_, to_, value_);
+        emit Transfer(from_, to_, value_);
     }
 
     /**
@@ -611,7 +628,7 @@ abstract contract ERC451 is IERC165 {
         // Increase supply and recipient balance
         totalSupply += value_;
         unchecked { balanceOf[to_] += value_; }
-        emit ERC20Transfer(address(0), to_, value_);
+        emit Transfer(address(0), to_, value_);
 
         // GAS-06: if recipient is not exempt, mint NFTs directly without going
         //         through the full transfer dispatch
@@ -653,7 +670,11 @@ abstract contract ERC451 is IERC165 {
             delete _ownedData[id_];
         }
 
-        emit ERC721Transfer(from_, to_, id_);
+        // ERC-721 Transfer: 4 topics (from, to, id all indexed) — distinguishes NFT transfer
+        // from the 3-topic ERC-20 Transfer emitted by _transferERC20.
+        assembly {
+            log4(0, 0, _TRANSFER_EVENT_SIGNATURE, from_, to_, id_)
+        }
     }
 
     /**
@@ -688,7 +709,9 @@ abstract contract ERC451 is IERC165 {
             // CRIT-02: single combined SSTORE for owner + index
             _setOwnerAndIndex(id, to_, toLen + i);
 
-            emit ERC721Transfer(from_, to_, id);
+            assembly {
+                log4(0, 0, _TRANSFER_EVENT_SIGNATURE, from_, to_, id)
+            }
             unchecked { ++i; }
         }
 
