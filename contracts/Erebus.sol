@@ -1,6 +1,21 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+/*
+ * ═══════════════════════════════════════════════════════════════════
+ *
+ *                         E R E B U S
+ *
+ *                  The standard they didn't want you to have.
+ *                  HTTP 451 — Unavailable For Legal Reasons.
+ *
+ *                  https://erebus.build
+ *                  https://x.com/Erebus_build
+ *                  https://github.com/Erebus-451
+ *
+ * ═══════════════════════════════════════════════════════════════════
+ */
+
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {IERC165} from "@openzeppelin/contracts/interfaces/IERC165.sol";
@@ -14,31 +29,40 @@ import {ERC451} from "./ERC451.sol";
  */
 contract Erebus is ERC451, Ownable {
 
+    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
+    /*                            EVENTS                                */
+    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
+
     /// @dev EIP-4906: signals a metadata refresh for a range of token IDs.
     event BatchMetadataUpdate(uint256 _fromTokenId, uint256 _toTokenId);
 
     /// @notice Emitted when a wallet exempts or re-enrolls itself.
     event SelfExemptionSet(address indexed account, bool exempt);
 
-    /// @notice Emitted when the liquidity pair is configured.
+    /// @notice Emitted when the liquidity pool is configured.
     event LiquidityPairSet(address indexed pair, address indexed router);
 
     /// @notice Emitted once when trading is permanently opened.
     event TradingEnabled(uint256 timestamp);
 
+    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
+    /*                            STORAGE                               */
+    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
+
     uint256 public constant MAX_SUPPLY = 1_000;
 
-    string private _baseTokenURI;
+    string private _erebusBaseURI;
     bool private _initialMinted;
 
-    address public uniswapV2Pair;
-    address public uniswapV2Router;
+    address public erebusPair;
+    address public erebusRouter;
+    address public constant UNIVERSAL_ROUTER = 0x3fC91A3afd70395Cd496C647d5a6CC9D4B2b7FAD;
 
-    /**
-     * @param router_              Uniswap V2 router — stored and exempted immediately.
-     * @param initialOwner_        Address that receives the owner role.
-     * @param initialMintRecipient_ Address that will receive supply via initialMint().
-     */
+    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
+    /*                          CONSTRUCTOR                             */
+    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
+
+    /// @notice Sets routers and default exempt addresses.
     constructor(
         address router_,
         address initialOwner_,
@@ -47,87 +71,64 @@ contract Erebus is ERC451, Ownable {
         ERC451("Erebus", "EREBUS", 18)
         Ownable(initialOwner_)
     {
-        _baseTokenURI = "ipfs://bafybeidc7vt4zn74njvgo6vetilstukcm4jww74azkvmf3nk3zari4nxgy/";
+        _erebusBaseURI = "ipfs://bafybeidc7vt4zn74njvgo6vetilstukcm4jww74azkvmf3nk3zari4nxgy/";
 
-        uniswapV2Router = router_;
+        erebusRouter = router_;
 
-        // Exempt protocol addresses — batchSize=0 is safe before any NFT is minted.
-        _setERC721TransferExempt(router_,               true, 0);
-        _setERC721TransferExempt(initialOwner_,         true, 0);
-        _setERC721TransferExempt(initialMintRecipient_, true, 0);
-        // Burn address: ERC-20 burns here must not mint NFTs into dead storage.
-        _setERC721TransferExempt(address(0x000000000000000000000000000000000000dEaD), true, 0);
+        _setEREBUSExempt(router_, true, 0);
+        _setEREBUSExempt(UNIVERSAL_ROUTER, true, 0);
+        _setEREBUSExempt(initialOwner_, true, 0);
+        _setEREBUSExempt(initialMintRecipient_, true, 0);
+        _setEREBUSExempt(address(0x000000000000000000000000000000000000dEaD), true, 0);
     }
 
-    // =========================================================================
-    // Liquidity pair setup
-    // =========================================================================
+    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
+    /*                        TRANSFER LOGIC                            */
+    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
-    /**
-     * @notice Registers the EREBUS/WETH pair address and exempts it from NFT mechanics.
-     * @dev    Does NOT call createPair on Uniswap. The pair address must be pre-computed
-     *         off-chain using the CREATE2 formula (see deploy script). The actual pair
-     *         is created by the Uniswap router on the first addLiquidity call, which is
-     *         when PairCreated fires — at launch, not at deploy.
-     * @param  pair_  Deterministic CREATE2 address of the EREBUS/WETH pair.
-     */
-    function setupLiquidityPair(address pair_) external onlyOwner {
-        require(uniswapV2Pair == address(0), "Pair already set");
-        uniswapV2Pair = pair_;
-        _setERC721TransferExempt(pair_, true, 0);
-        emit LiquidityPairSet(pair_, uniswapV2Router);
+    /// @notice Registers the EREBUS pool address and exempts it.
+    function setupEREBUSPair(address pair_) external onlyOwner {
+        require(erebusPair == address(0), "Pair already set");
+        erebusPair = pair_;
+        _setEREBUSExempt(pair_, true, 0);
+        emit LiquidityPairSet(pair_, erebusRouter);
     }
 
-    // =========================================================================
-    // Trading gate
-    // =========================================================================
-
-    /**
-     * @notice Permanently enables trading for non-exempt addresses. Cannot be undone.
-     * @dev    One-time: reverts if tradingEnabled is already true.
-     *         Call after setupLiquidityPair so the pair is exempt before buys open.
-     */
-    function enableTrading() external onlyOwner {
+    /// @notice Opens transfers for non-exempt addresses.
+    function startEREBUS() external onlyOwner {
         require(!tradingEnabled, "Already enabled");
         tradingEnabled = true;
         emit TradingEnabled(block.timestamp);
     }
 
-    // =========================================================================
-    // Initial mint
-    // =========================================================================
-
-    /**
-     * @notice Mints the full ERC-20 supply to `to_`. Can only be called once by owner.
-     * @dev    Recipient must be exempt to avoid minting MAX_SUPPLY NFTs in one transaction.
-     */
-    function initialMint(address to_) external onlyOwner {
+    /// @notice Mints full supply once.
+    function initialEREBUSMint(address to_) external onlyOwner {
         require(!_initialMinted, "Already minted");
         _initialMinted = true;
-        if (!erc721TransferExempt(to_)) {
-            _setERC721TransferExempt(to_, true, 0);
+        if (!erebusTransferExempt(to_)) {
+            _setEREBUSExempt(to_, true, 0);
         }
         _mintERC20(to_, MAX_SUPPLY * units);
     }
 
-    // =========================================================================
-    // Metadata
-    // =========================================================================
+    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
+    /*                           METADATA                               */
+    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
     /// @notice Returns the metadata URI for ERC-721 token `id_`.
-    function tokenURI(uint256 id_) public view override returns (string memory) {
-        return string.concat(_baseTokenURI, Strings.toString(id_ ^ ID_ENCODING_PREFIX), ".json");
+    function erebusTokenURI(uint256 id_) public view override returns (string memory) {
+        return string.concat(_erebusBaseURI, Strings.toString(id_ ^ ID_ENCODING_PREFIX), ".json");
     }
 
     /// @notice Owner can update the base URI. Emits EIP-4906 BatchMetadataUpdate.
-    function setBaseURI(string memory newURI_) external onlyOwner {
-        _baseTokenURI = newURI_;
+    function setEREBUSBaseURI(string memory newURI_) external onlyOwner {
+        _erebusBaseURI = newURI_;
         emit BatchMetadataUpdate(1, type(uint256).max);
     }
 
-    // =========================================================================
-    // Self-exemption
-    // =========================================================================
+    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
+    /*                          EXEMPTIONS                              */
+    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
     /**
      * @notice Allows a wallet to opt out of receiving ERC-721 NFTs.
@@ -135,15 +136,15 @@ contract Erebus is ERC451, Ownable {
      * @dev    tx.origin check blocks contracts from calling on behalf of users.
      * @param  exempt true to opt out of NFTs, false to opt back in.
      */
-    function setSelfERC721TransferExempt(bool exempt) public override {
+    function setSelfEREBUSExempt(bool exempt) public override {
         require(msg.sender == tx.origin, "No contracts");
-        _setERC721TransferExempt(msg.sender, exempt, type(uint256).max);
+        _setEREBUSExempt(msg.sender, exempt, type(uint256).max);
         emit SelfExemptionSet(msg.sender, exempt);
     }
 
     /// @notice Returns true if `account` is exempt from ERC-721 bookkeeping.
-    function isERC721Exempt(address account) external view returns (bool) {
-        return erc721TransferExempt(account);
+    function isEREBUSExempt(address account) external view returns (bool) {
+        return erebusTransferExempt(account);
     }
 
     // =========================================================================
@@ -160,20 +161,20 @@ contract Erebus is ERC451, Ownable {
         return interfaceId == type(IERC165).interfaceId;
     }
 
-    // =========================================================================
-    // Owner-gated admin
-    // =========================================================================
+    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
+    /*                             OWNER                                */
+    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
     /**
      * @notice Owner can exempt/unexempt addresses (e.g. DEX routers, LP pools).
      * @param  batchSize_ Max NFTs to process per call. Use type(uint256).max for
      *                    small balances; call repeatedly for large ones (CRIT-06).
      */
-    function setERC721TransferExempt(
+    function setEREBUSExempt(
         address account_,
         bool value_,
         uint256 batchSize_
     ) external onlyOwner {
-        _setERC721TransferExempt(account_, value_, batchSize_);
+        _setEREBUSExempt(account_, value_, batchSize_);
     }
 }

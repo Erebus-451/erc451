@@ -1,37 +1,29 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+/*
+ * ═══════════════════════════════════════════════════════════════════
+ *
+ *                         E R E B U S
+ *
+ *                  The standard they didn't want you to have.
+ *                  HTTP 451 — Unavailable For Legal Reasons.
+ *
+ *                  https://erebus.build
+ *                  https://x.com/Erebus_build
+ *                  https://github.com/Erebus-451
+ *
+ * ═══════════════════════════════════════════════════════════════════
+ */
+
 import {IERC721Receiver} from "@openzeppelin/contracts/interfaces/IERC721Receiver.sol";
 import {IERC165} from "@openzeppelin/contracts/interfaces/IERC165.sol";
 
-/**
- * @title ERC-451
- * @notice Improved semi-fungible token standard — fixes every critical issue in ERC-404
- *         (Pandora Labs). Merges ERC-20 liquidity with ERC-721 NFT ownership.
- *
- * Key improvements over ERC-404:
- *  - Batched NFT transfer: O(N) per-token overhead slashed via single-pass batch operations
- *  - Single SSTORE per ownership update (CRIT-02: combined owner+index write)
- *  - Reentrancy guard on all external-call paths (CRIT-03)
- *  - erc721CirculatingSupply() returns actual live count (CRIT-04)
- *  - supportsInterface reports IERC721 + IERC721Metadata (CRIT-05)
- *  - Paginated exemption toggle — no more O(N) block-limit risk (CRIT-06)
- *  - uint32[] owned arrays — 8× denser storage than uint256[] (GAS-03)
- *  - Dedicated mint path, no wasted address(0) SLOAD (GAS-06)
- *  - Arithmetic post-transfer balance derivation, no re-reads (GAS-01)
- *  - InsufficientAllowance error explicitly thrown (COMP-02)
- *  - EIP-4906 MetadataUpdate on recycled token IDs (COMP-06)
- *  - permit() guards against owner == address(0) (COMP-05)
- *  - Parameterised custom errors for all revert paths (QUAL-03)
- *  - _isNFTId / _isMintedTokenId separation (QUAL-04)
- *  - Paginated owned() view (QUAL-07)
- *  - or-based bit-packing in assembly (QUAL-08)
- */
 abstract contract ERC451 is IERC165 {
 
-    // =========================================================================
-    // Events (ERC-20 + ERC-721 + EIP-4906)
-    // =========================================================================
+    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
+    /*                            EVENTS                                */
+    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
     event Transfer(address indexed from, address indexed to, uint256 value);
     event ERC20Approval(address indexed owner, address indexed spender, uint256 value);
@@ -40,9 +32,9 @@ abstract contract ERC451 is IERC165 {
     /// @dev EIP-4906 — COMP-06: signal metadata refresh on recycled token IDs
     event MetadataUpdate(uint256 indexed tokenId);
 
-    // =========================================================================
-    // Errors — parameterised for debuggability (QUAL-03)
-    // =========================================================================
+    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
+    /*                            ERRORS                                */
+    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
     error NotFound(uint256 id);
     error InvalidTokenId(uint256 id);
@@ -66,9 +58,9 @@ abstract contract ERC451 is IERC165 {
     error Reentrancy();
     error ExemptionStillPending(address target, uint256 remaining);
 
-    // =========================================================================
-    // Token identity
-    // =========================================================================
+    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
+    /*                            STORAGE                               */
+    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
     /// @notice Token name (ERC-20 + ERC-721)
     string public name;
@@ -91,9 +83,7 @@ abstract contract ERC451 is IERC165 {
 
     /**
      * @notice Monotonically-increasing mint counter.
-     * @dev    Represents the highest token offset ever minted. Does NOT decrease
-     *         on burn. Use erc721CirculatingSupply() for the true live count.
-     *         (CRIT-04 fix: separated from circulating supply)
+     * @dev Highest minted offset, independent from live circulating count.
      */
     uint256 public minted;
 
@@ -128,13 +118,13 @@ abstract contract ERC451 is IERC165 {
     // Transfer-exempt set
     // =========================================================================
 
-    mapping(address => bool) internal _erc721TransferExempt;
+    mapping(address => bool) internal _erebusTransferExempt;
 
     // =========================================================================
     // Trading gate
     // =========================================================================
 
-    /// @notice False until owner calls enableTrading(). Prevents non-exempt transfers at launch.
+    /// @notice False until owner calls startEREBUS(). Prevents non-exempt transfers at launch.
     bool public tradingEnabled;
 
     // =========================================================================
@@ -175,9 +165,9 @@ abstract contract ERC451 is IERC165 {
     uint256 private constant _BITMASK_ADDRESS     = (1 << 160) - 1;
     uint256 private constant _BITMASK_OWNED_INDEX = ((1 << 96) - 1) << 160;
 
-    // =========================================================================
-    // Constructor
-    // =========================================================================
+    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
+    /*                          CONSTRUCTOR                             */
+    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
     constructor(string memory name_, string memory symbol_, uint8 decimals_) {
         if (decimals_ < 18) revert DecimalsTooLow();
@@ -230,9 +220,7 @@ abstract contract ERC451 is IERC165 {
     }
 
     /**
-     * @notice Returns a page of ERC-721 token IDs owned by `owner_`.
-     * @dev    QUAL-07: paginated to prevent unbounded memory allocation.
-     *         Pass start_=0, count_=erc721BalanceOf(owner_) for a full read.
+     * @notice Returns a page of token IDs owned by `owner_`.
      */
     function owned(
         address owner_,
@@ -257,16 +245,12 @@ abstract contract ERC451 is IERC165 {
         return owned(owner_, 0, _owned[owner_].length);
     }
 
-    function erc721BalanceOf(address owner_) public view virtual returns (uint256) {
+    function erebusBalanceOf(address owner_) public view virtual returns (uint256) {
         return _owned[owner_].length;
     }
 
-    /**
-     * @notice CRIT-04: returns the actual number of live ERC-721s in circulation.
-     *         ERC-404's erc721TotalSupply() returned the monotonic `minted` counter
-     *         which never decreased on burn. This is the corrected version.
-     */
-    function erc721CirculatingSupply() public view virtual returns (uint256) {
+    /// @notice Returns live circulating NFTs.
+    function erebusCirculatingSupply() public view virtual returns (uint256) {
         return minted - _bankLength();
     }
 
@@ -274,19 +258,16 @@ abstract contract ERC451 is IERC165 {
      * @notice Returns the highest token ID offset ever minted (monotonic, never decreases).
      * @dev    Named clearly to distinguish from circulating supply (CRIT-04).
      */
-    function erc721HighestMintedId() public view virtual returns (uint256) {
+    function erebusHighestMintedId() public view virtual returns (uint256) {
         return minted;
     }
 
-    function getERC721QueueLength() public view virtual returns (uint256) {
+    function getEREBUSQueueLength() public view virtual returns (uint256) {
         return _bankLength();
     }
 
-    /**
-     * @notice Returns a page of token IDs currently in the bank (burned/recycled).
-     * @dev    GAS-08: validates bounds before allocating memory.
-     */
-    function getERC721TokensInQueue(
+    /// @notice Returns a page of token IDs currently in the bank queue.
+    function getEREBUSTokensInQueue(
         uint256 start_,
         uint256 count_
     ) public view virtual returns (uint256[] memory ids) {
@@ -309,27 +290,27 @@ abstract contract ERC451 is IERC165 {
         return balanceOf[owner_];
     }
 
-    function erc20TotalSupply() public view virtual returns (uint256) {
+    function erebusTotalSupply() public view virtual returns (uint256) {
         return totalSupply;
     }
 
-    // =========================================================================
-    // tokenURI (must be implemented by child)
-    // =========================================================================
+    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
+    /*                           METADATA                               */
+    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
-    function tokenURI(uint256 id_) public view virtual returns (string memory);
+    function erebusTokenURI(uint256 id_) public view virtual returns (string memory);
 
-    // =========================================================================
-    // ERC-721 transfer exemption
-    // =========================================================================
+    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
+    /*                          EXEMPTIONS                              */
+    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
-    function erc721TransferExempt(address target_) public view virtual returns (bool) {
-        return target_ == address(0) || _erc721TransferExempt[target_];
+    function erebusTransferExempt(address target_) public view virtual returns (bool) {
+        return target_ == address(0) || _erebusTransferExempt[target_];
     }
 
     /// @notice Allows any holder to exempt themselves from ERC-721 bookkeeping.
-    function setSelfERC721TransferExempt(bool state_) public virtual {
-        _setERC721TransferExempt(msg.sender, state_, type(uint256).max);
+    function setSelfEREBUSExempt(bool state_) public virtual {
+        _setEREBUSExempt(msg.sender, state_, type(uint256).max);
     }
 
     // =========================================================================
@@ -372,9 +353,9 @@ abstract contract ERC451 is IERC165 {
         emit ApprovalForAll(msg.sender, operator_, approved_);
     }
 
-    // =========================================================================
-    // Transfers — public surface
-    // =========================================================================
+    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
+    /*                        TRANSFER LOGIC                            */
+    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
     /**
      * @notice Unified transferFrom — dispatches to ERC-721 or ERC-20 based on valueOrId_.
@@ -404,7 +385,7 @@ abstract contract ERC451 is IERC165 {
             !isApprovedForAll[from_][msg.sender] &&
             msg.sender != getApproved[id_]
         ) revert Unauthorized(msg.sender, id_);
-        if (erc721TransferExempt(to_)) revert RecipientIsERC721TransferExempt(to_);
+        if (erebusTransferExempt(to_)) revert RecipientIsERC721TransferExempt(to_);
 
         _transferERC20(from_, to_, units);
         _transferERC721(from_, to_, id_);
@@ -534,7 +515,7 @@ abstract contract ERC451 is IERC165 {
     function _transferERC20(address from_, address to_, uint256 value_) internal virtual {
         if (!tradingEnabled) {
             require(
-                erc721TransferExempt(from_) || erc721TransferExempt(to_),
+                erebusTransferExempt(from_) || erebusTransferExempt(to_),
                 "Trading not enabled"
             );
         }
@@ -572,8 +553,8 @@ abstract contract ERC451 is IERC165 {
         uint256 senderAfter   = senderBefore   - value_;
         uint256 receiverAfter = receiverBefore + value_;
 
-        bool fromExempt = erc721TransferExempt(from_);
-        bool toExempt   = erc721TransferExempt(to_);
+        bool fromExempt = erebusTransferExempt(from_);
+        bool toExempt   = erebusTransferExempt(to_);
 
         if (fromExempt && toExempt) {
             // Case 1: no NFT work
@@ -613,12 +594,7 @@ abstract contract ERC451 is IERC165 {
         return true;
     }
 
-    /**
-     * @dev  GAS-06: dedicated mint path that skips the generic transfer function.
-     *       ERC-404 routed mint through _transferERC20WithERC721(address(0), to, value)
-     *       which wastefully read balanceOf[address(0)] (always 0) and checked exemption
-     *       for address(0) (always true). This path is direct and avoids those reads.
-     */
+    /// @dev Dedicated mint path.
     function _mintERC20(address to_, uint256 value_) internal virtual {
         if (to_ == address(0)) revert InvalidRecipient(to_);
         if (totalSupply + value_ > ID_ENCODING_PREFIX) revert MintLimitReached();
@@ -632,7 +608,7 @@ abstract contract ERC451 is IERC165 {
 
         // GAS-06: if recipient is not exempt, mint NFTs directly without going
         //         through the full transfer dispatch
-        if (!erc721TransferExempt(to_)) {
+        if (!erebusTransferExempt(to_)) {
             uint256 receiverAfter = receiverBefore + value_;
             uint256 toMint = (receiverAfter / units) - (receiverBefore / units);
             for (uint256 i = 0; i < toMint; ) {
@@ -677,16 +653,7 @@ abstract contract ERC451 is IERC165 {
         }
     }
 
-    /**
-     * @dev  CRIT-01 optimisation: batch-transfers the last `count_` NFTs from
-     *       `from_._owned` to `to_._owned` in a single loop, avoiding the
-     *       per-token function-call overhead and double SLOAD/SSTORE of the
-     *       ERC-404 approach.
-     *
-     *       Taking from the END of the sender's array means no swap-and-pop is
-     *       needed for the remaining elements — their indices are unchanged.
-     *       Each token still emits its own ERC-721 Transfer event (spec-required).
-     */
+    /// @dev Batch-transfers `count_` NFTs from sender tail to recipient.
     function _batchTransferFromOwned(
         address from_,
         address to_,
@@ -792,17 +759,8 @@ abstract contract ERC451 is IERC165 {
     // Internal — exemption management (CRIT-06)
     // =========================================================================
 
-    /**
-     * @dev  CRIT-06: paginated exemption toggle.
-     *       ERC-404 processed ALL NFTs in one transaction, hitting the block gas
-     *       limit for large-balance addresses (e.g. DEX LP pools with 500+ NFTs).
-     *       Pass batchSize_ = type(uint256).max to process everything in one call
-     *       (safe only for small balances). For large balances, call repeatedly
-     *       with a bounded batchSize_ until the exemption is fully resolved.
-     *
-     * @param batchSize_  Max NFTs to process in this call.
-     */
-    function _setERC721TransferExempt(
+    /// @dev Paginated exemption toggle.
+    function _setEREBUSExempt(
         address target_,
         bool state_,
         uint256 batchSize_
@@ -813,13 +771,13 @@ abstract contract ERC451 is IERC165 {
             _clearERC721Balance(target_, batchSize_);
             // Only mark exempt once the balance is fully cleared
             if (_owned[target_].length == 0) {
-                _erc721TransferExempt[target_] = true;
+                _erebusTransferExempt[target_] = true;
             } else {
                 // Caller must continue calling with additional batches
                 revert ExemptionStillPending(target_, _owned[target_].length);
             }
         } else {
-            _erc721TransferExempt[target_] = false;
+            _erebusTransferExempt[target_] = false;
             _reinstateERC721Balance(target_, batchSize_);
         }
     }
@@ -841,7 +799,7 @@ abstract contract ERC451 is IERC165 {
      */
     function _reinstateERC721Balance(address target_, uint256 batchSize_) private {
         uint256 expected = erc20BalanceOf(target_) / units;
-        uint256 actual   = erc721BalanceOf(target_);
+        uint256 actual   = erebusBalanceOf(target_);
         if (expected <= actual) return;
         uint256 toMint = expected - actual;
         if (toMint > batchSize_) toMint = batchSize_;
@@ -855,12 +813,7 @@ abstract contract ERC451 is IERC165 {
     // Internal — packed ownership helpers (CRIT-02)
     // =========================================================================
 
-    /**
-     * @dev CRIT-02 / QUAL-08: encodes both owner and owned-array index into a single
-     *      uint256 and writes it in one SSTORE. ERC-404 called _setOwnerOf then
-     *      _setOwnedIndex separately, causing two read-modify-write cycles on the
-     *      same storage slot. Uses `or` (not `add`) for semantic clarity (QUAL-08).
-     */
+    /// @dev Encodes owner and index into one packed storage slot.
     function _setOwnerAndIndex(uint256 id_, address owner_, uint256 index_) internal {
         if (index_ > type(uint96).max) revert OwnedIndexOverflow();
         assembly {
