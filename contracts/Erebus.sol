@@ -56,7 +56,8 @@ contract Erebus is ERC451, Ownable {
 
     address public erebusPair;
     address public erebusRouter;
-    address public constant UNIVERSAL_ROUTER = 0x3fC91A3afd70395Cd496C647d5a6CC9D4B2b7FAD;
+    address public constant UNIVERSAL_ROUTER             = 0x3fC91A3afd70395Cd496C647d5a6CC9D4B2b7FAD;
+    address public constant NONFUNGIBLE_POSITION_MANAGER = 0xC36442b4a4522E871399CD717aBDD847Ab11FE88;
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                          CONSTRUCTOR                             */
@@ -77,6 +78,7 @@ contract Erebus is ERC451, Ownable {
 
         _setEREBUSExempt(router_, true, 0);
         _setEREBUSExempt(UNIVERSAL_ROUTER, true, 0);
+        _setEREBUSExempt(NONFUNGIBLE_POSITION_MANAGER, true, 0);
         _setEREBUSExempt(initialOwner_, true, 0);
         _setEREBUSExempt(initialMintRecipient_, true, 0);
         _setEREBUSExempt(address(0x000000000000000000000000000000000000dEaD), true, 0);
@@ -117,7 +119,8 @@ contract Erebus is ERC451, Ownable {
 
     /// @notice Returns the metadata URI for ERC-721 token `id_`.
     function erebusTokenURI(uint256 id_) public view override returns (string memory) {
-        return string.concat(_erebusBaseURI, Strings.toString(id_ ^ ID_ENCODING_PREFIX), ".json");
+        uint256 realId = id_ - ID_ENCODING_PREFIX;
+        return string(abi.encodePacked(_erebusBaseURI, Strings.toString(realId), ".json"));
     }
 
     /// @notice Owner can update the base URI. Emits EIP-4906 BatchMetadataUpdate.

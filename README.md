@@ -88,11 +88,13 @@ function enableTrading() external onlyOwner {
 }
 ```
 
-This pattern ensures:
-1. The deployer mints the full supply to an exempt address.
-2. Liquidity is added via the router (also exempt) — no NFT minting triggered.
-3. The pair address is registered and exempted via `setupLiquidityPair`.
-4. `enableTrading()` is called — from this point all transfers are open.
+This pattern ensures a safe Uniswap V3 launch sequence:
+
+1. Deploy — owner, SwapRouter02, UniversalRouter, NonfungiblePositionManager, and mint recipient are all auto-exempted.
+2. The deployer mints the full supply to an exempt address — no NFTs minted.
+3. **Before adding LP:** compute the V3 pool address and exempt it via `setupLiquidityPair`. This must happen first — if the pool receives tokens before being exempted, the contract tries to mint NFTs into it.
+4. Add liquidity via the V3 NonfungiblePositionManager — both sides (owner and pool) are now exempt, so no NFT mechanics are triggered.
+5. `enableTrading()` is called — from this point all transfers are open.
 
 ---
 
@@ -193,10 +195,10 @@ npx hardhat run scripts/deployErebus.ts --network sepolia
 npx hardhat run scripts/deployErebus.ts --network mainnet
 ```
 
-After adding liquidity on Uniswap, run the launch script to register the pair and open trading:
+After computing the V3 pool address, exempt it and open trading:
 
 ```bash
-EREBUS_ADDRESS=0x... PAIR_ADDRESS=0x... npx hardhat run scripts/launch.ts --network mainnet
+EREBUS_ADDRESS=0x... POOL_ADDRESS=0x... npx hardhat run scripts/launch.ts --network mainnet
 ```
 
 ---
@@ -204,6 +206,15 @@ EREBUS_ADDRESS=0x... PAIR_ADDRESS=0x... npx hardhat run scripts/launch.ts --netw
 ## Exemption management
 
 DEX routers, LP pools, and other programmatic holders should be exempted from ERC-721 bookkeeping to avoid unnecessary NFT minting/burning on every trade.
+
+For Uniswap V3, exempt the following before touching liquidity:
+
+| Address | Purpose |
+|---|---|
+| SwapRouter02 | Passed as `router_` at deploy — auto-exempted |
+| UniversalRouter (`0x3fC91A3afd70395...`) | Auto-exempted at deploy |
+| NonfungiblePositionManager (`0xC36442b4...`) | Auto-exempted at deploy — needed for fee collection |
+| V3 pool address | Exempt via `setupLiquidityPair` **before** adding LP |
 
 For addresses with a small NFT balance, pass `type(uint256).max` to process everything in one call:
 
@@ -237,7 +248,7 @@ setEREBUSExempt(lpPool, true, 100);
 
 ## Reference implementation
 
-[Erebus](https://github.com/Erebus-451/erebus-labs) is a production deployment of ERC-451 on Ethereum mainnet. It implements the full trading gate pattern, EIP-4906 metadata, self-exemption, and a Uniswap V2 launch sequence.
+[Erebus](https://github.com/Erebus-451/erebus-labs) is a production deployment of ERC-451 on Ethereum mainnet. It implements the full trading gate pattern, EIP-4906 metadata, self-exemption, and a Uniswap V3 launch sequence.
 
 ---
 
