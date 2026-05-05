@@ -45,8 +45,8 @@ Estimated savings vs ERC-404:
 
 **Supply reporting (CRIT-04)**
 
-- `erc721CirculatingSupply()` — true live count: `minted - bankLength`
-- `erc721HighestMintedId()` — monotonic counter retained for off-chain indexers that need it
+- `erebusCirculatingSupply()` — true live count: `minted - bankLength`
+- `erebusHighestMintedId()` — monotonic counter retained for off-chain indexers that need it
 
 **Marketplace compatibility (CRIT-05)**
 
@@ -54,7 +54,7 @@ Estimated savings vs ERC-404:
 
 **Paginated exemption (CRIT-06)**
 
-`_setERC721TransferExempt(address, bool, batchSize)` — processes at most `batchSize` NFTs per call. Reverts with `ExemptionStillPending(target, remaining)` if more batches are needed.
+`_setEREBUSExempt(address, bool, batchSize)` — processes at most `batchSize` NFTs per call. Reverts with `ExemptionStillPending(target, remaining)` if more batches are needed.
 
 **Standards compliance**
 
@@ -129,9 +129,9 @@ contract MyToken is ERC451, Ownable {
         ERC451("MyToken", "MTK", 18)
         Ownable(owner_)
     {
-        _setERC721TransferExempt(router_,         true, 0);
-        _setERC721TransferExempt(owner_,          true, 0);
-        _setERC721TransferExempt(mintRecipient_,  true, 0);
+        _setEREBUSExempt(router_,         true, 0);
+        _setEREBUSExempt(owner_,          true, 0);
+        _setEREBUSExempt(mintRecipient_,  true, 0);
     }
 
     function initialMint(address to_) external onlyOwner {
@@ -139,7 +139,7 @@ contract MyToken is ERC451, Ownable {
     }
 
     function setupLiquidityPair(address pair_) external onlyOwner {
-        _setERC721TransferExempt(pair_, true, 0);
+        _setEREBUSExempt(pair_, true, 0);
     }
 
     function enableTrading() external onlyOwner {
@@ -148,14 +148,14 @@ contract MyToken is ERC451, Ownable {
         emit TradingEnabled(block.timestamp);
     }
 
-    function tokenURI(uint256 id_) public pure override returns (string memory) {
+    function erebusTokenURI(uint256 id_) public view override returns (string memory) {
         return string.concat("https://your-metadata-endpoint/token/", Strings.toString(id_));
     }
 
-    function setERC721TransferExempt(address account_, bool value_, uint256 batchSize_)
+    function setEREBUSExempt(address account_, bool value_, uint256 batchSize_)
         external onlyOwner
     {
-        _setERC721TransferExempt(account_, value_, batchSize_);
+        _setEREBUSExempt(account_, value_, batchSize_);
     }
 }
 ```
@@ -208,16 +208,16 @@ DEX routers, LP pools, and other programmatic holders should be exempted from ER
 For addresses with a small NFT balance, pass `type(uint256).max` to process everything in one call:
 
 ```solidity
-setERC721TransferExempt(routerAddress, true, type(uint256).max);
+setEREBUSExempt(routerAddress, true, type(uint256).max);
 ```
 
 For addresses with hundreds of NFTs, call repeatedly with a bounded batch size:
 
 ```solidity
 // First call
-setERC721TransferExempt(lpPool, true, 100);
+setEREBUSExempt(lpPool, true, 100);
 // If it reverts with ExemptionStillPending, call again
-setERC721TransferExempt(lpPool, true, 100);
+setEREBUSExempt(lpPool, true, 100);
 // ... repeat until it succeeds
 ```
 
@@ -237,7 +237,7 @@ setERC721TransferExempt(lpPool, true, 100);
 
 ## Reference implementation
 
-[Erebus](https://github.com/ClaimyToken/erebus-labs) is a production deployment of ERC-451 on Ethereum mainnet. It implements the full trading gate pattern, EIP-4906 metadata, self-exemption, and a Uniswap V2 launch sequence.
+[Erebus](https://github.com/Erebus-451/erebus-labs) is a production deployment of ERC-451 on Ethereum mainnet. It implements the full trading gate pattern, EIP-4906 metadata, self-exemption, and a Uniswap V2 launch sequence.
 
 ---
 
