@@ -298,7 +298,7 @@ abstract contract ERC451 is IERC165 {
     /*                           METADATA                               */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
-    function erebusTokenURI(uint256 id_) public view virtual returns (string memory);
+    function tokenURI(uint256 id_) public view virtual returns (string memory);
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                          EXEMPTIONS                              */

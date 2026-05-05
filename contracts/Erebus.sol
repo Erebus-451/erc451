@@ -118,7 +118,7 @@ contract Erebus is ERC451, Ownable {
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
     /// @notice Returns the metadata URI for ERC-721 token `id_`.
-    function erebusTokenURI(uint256 id_) public view override returns (string memory) {
+    function tokenURI(uint256 id_) public view override returns (string memory) {
         uint256 realId = id_ - ID_ENCODING_PREFIX;
         return string(abi.encodePacked(_erebusBaseURI, Strings.toString(realId), ".json"));
     }

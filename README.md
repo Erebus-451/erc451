@@ -150,8 +150,9 @@ contract MyToken is ERC451, Ownable {
         emit TradingEnabled(block.timestamp);
     }
 
-    function erebusTokenURI(uint256 id_) public view override returns (string memory) {
-        return string.concat("https://your-metadata-endpoint/token/", Strings.toString(id_));
+    function tokenURI(uint256 id_) public view override returns (string memory) {
+        uint256 realId = id_ - ID_ENCODING_PREFIX;
+        return string(abi.encodePacked("https://your-metadata-endpoint/", Strings.toString(realId), ".json"));
     }
 
     function setEREBUSExempt(address account_, bool value_, uint256 batchSize_)
